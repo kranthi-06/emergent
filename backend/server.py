@@ -8,7 +8,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from enum import Enum
 
 
 ROOT_DIR = Path(__file__).parent
@@ -19,6 +20,13 @@ mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
 db_name = os.environ.get('DB_NAME', 'emergent_db')
 db = client[db_name]
+
+# Global State for System Status
+ESP32_LAST_SEEN = None
+
+class SystemStatus(str, Enum):
+    ONLINE = "Online"
+    OFFLINE = "Offline"
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -62,12 +70,36 @@ class StatusCheck(BaseModel):
 class StatusCheckCreate(BaseModel):
     client_name: str
 
+class AlertType(str, Enum):
+    INFO = "INFO"
+    WARNING = "WARNING"
+    CRITICAL = "CRITICAL"
+
+class Alert(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    type: AlertType
+    message: str
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    read: bool = False
+
+class SystemHealth(BaseModel):
+    database: SystemStatus
+    esp32: SystemStatus
+    api: SystemStatus = SystemStatus.ONLINE
+
 class SystemConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
     
     auto_mode: bool = True
     moisture_threshold: float = 40.0
     manual_pump_state: bool = False # True = ON, False = OFF
+    
+    # Alert Configuration
+    alert_mobile: Optional[str] = ""
+    alert_email: Optional[str] = ""
+    enable_sms: bool = False
+    enable_email: bool = False
+    
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 # Add your routes to the router instead of directly to app
@@ -106,6 +138,10 @@ async def create_sensor_data(input: SensorDataCreate):
     doc['timestamp'] = doc['timestamp'].isoformat()
     
     await db.sensor_readings.insert_one(doc)
+
+    # Update Global Last Seen
+    global ESP32_LAST_SEEN
+    ESP32_LAST_SEEN = datetime.now(timezone.utc)
     
     # 2. Get Current Configuration (The "Brain")
     config_doc = await db.system_config.find_one({}, sort=[("updated_at", -1)])
@@ -113,6 +149,19 @@ async def create_sensor_data(input: SensorDataCreate):
         config = SystemConfig() # Use defaults if nothing found
     else:
         config = SystemConfig(**config_doc)
+
+    # Check for Alerts
+    if input.soil_moisture < config.moisture_threshold:
+        # Check if we should create an alert (avoid spamming? for now we log every violation as an event)
+        # In a real app, you'd check if an alert was already sent in the last hour.
+        alert = Alert(
+            type=AlertType.WARNING,
+            message=f"Soil moisture low: {input.soil_moisture}% (Threshold: {config.moisture_threshold}%)"
+        )
+        alert_doc = alert.model_dump()
+        alert_doc['timestamp'] = alert_doc['timestamp'].isoformat()
+        await db.alerts.insert_one(alert_doc)
+
     
     # 3. Decision Logic
     command = "OFF"
@@ -164,17 +213,41 @@ async def create_status_check(input: StatusCheckCreate):
     _ = await db.status_checks.insert_one(doc)
     return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+@api_router.get("/status", response_model=SystemHealth)
+async def get_system_health():
+    # 1. Check Database
+    db_status = SystemStatus.OFFLINE
+    try:
+        # Simple ping command
+        await db.command("ping")
+        db_status = SystemStatus.ONLINE
+    except Exception:
+        db_status = SystemStatus.OFFLINE
     
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
+    # 2. Check ESP32
+    esp_status = SystemStatus.OFFLINE
+    global ESP32_LAST_SEEN
+    if ESP32_LAST_SEEN:
+        # If seen in last 2 minutes, consider online
+        if (datetime.now(timezone.utc) - ESP32_LAST_SEEN) < timedelta(minutes=2):
+            esp_status = SystemStatus.ONLINE
+            
+    # API is obviously online if this code is running
     
-    return status_checks
+    return SystemHealth(
+        database=db_status,
+        esp32=esp_status,
+        api=SystemStatus.ONLINE
+    )
+
+@api_router.get("/alerts", response_model=List[Alert])
+async def get_alerts():
+    # Get latest 50 alerts
+    alerts = await db.alerts.find({}, {"_id": 0}).sort("timestamp", -1).to_list(50)
+    for a in alerts:
+        if isinstance(a['timestamp'], str):
+            a['timestamp'] = datetime.fromisoformat(a['timestamp'])
+    return alerts
 
 # Include the router in the main app
 app.include_router(api_router)

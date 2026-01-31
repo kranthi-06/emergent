@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
-import { Search, Filter } from 'lucide-react';
+import { Search, Filter, Download } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -12,24 +12,131 @@ import {
   TableHeader,
   TableRow,
 } from '../components/ui/table';
-
-const mockSensors = [
-  { id: 1, name: 'Soil Moisture Sensor 1', value: 45.2, unit: '%', status: 'normal', lastUpdated: '2 min ago' },
-  { id: 2, name: 'Soil Moisture Sensor 2', value: 38.7, unit: '%', status: 'warning', lastUpdated: '2 min ago' },
-  { id: 3, name: 'Temperature Sensor 1', value: 28.5, unit: '°C', status: 'normal', lastUpdated: '1 min ago' },
-  { id: 4, name: 'Temperature Sensor 2', value: 42.1, unit: '°C', status: 'critical', lastUpdated: '1 min ago' },
-  { id: 5, name: 'Humidity Sensor 1', value: 65.3, unit: '%', status: 'normal', lastUpdated: '3 min ago' },
-  { id: 6, name: 'Humidity Sensor 2', value: 58.9, unit: '%', status: 'normal', lastUpdated: '3 min ago' },
-  { id: 7, name: 'pH Sensor', value: 6.8, unit: 'pH', status: 'normal', lastUpdated: '5 min ago' },
-  { id: 8, name: 'Light Intensity Sensor', value: 850, unit: 'lux', status: 'normal', lastUpdated: '2 min ago' },
-  { id: 9, name: 'NPK Sensor', value: 245, unit: 'ppm', status: 'warning', lastUpdated: '10 min ago' },
-];
+import { formatDistanceToNow } from 'date-fns';
 
 export default function SensorMonitoring() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [sensors, setSensors] = useState([]);
 
-  const filteredSensors = mockSensors.filter(sensor => {
+  // Initialize history from localStorage to show recent data if offline
+  const [history, setHistory] = useState(() => {
+    const saved = localStorage.getItem('sensor_history');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await fetch('/api/sensors');
+        if (response.ok) {
+          const data = await response.json();
+          setHistory(data);
+          localStorage.setItem('sensor_history', JSON.stringify(data));
+
+          if (data && data.length > 0) {
+            const latest = data[0];
+            const timestamp = latest.timestamp ? new Date(latest.timestamp) : new Date();
+
+            // Map the single latest reading to "Virtual" sensors for the table
+            setSensors([
+              {
+                id: 'soil-1',
+                name: 'Soil Moisture Sensor',
+                value: latest.soil_moisture,
+                unit: '%',
+                status: latest.soil_moisture < 40 ? 'warning' : 'normal',
+                lastUpdated: timestamp
+              },
+              {
+                id: 'temp-1',
+                name: 'Temperature Sensor',
+                value: latest.temperature,
+                unit: '°C',
+                status: latest.temperature > 35 ? 'warning' : 'normal',
+                lastUpdated: timestamp
+              },
+              {
+                id: 'hum-1',
+                name: 'Humidity Sensor',
+                value: latest.humidity,
+                unit: '%',
+                status: latest.humidity > 80 ? 'warning' : 'normal',
+                lastUpdated: timestamp
+              }
+            ]);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to fetch sensor data", error);
+        // Fallback: If we have history but fetch failed, reconstruct "Sensors" from cached latest history
+        const saved = localStorage.getItem('sensor_history');
+        if (saved) {
+          const data = JSON.parse(saved);
+          if (data && data.length > 0) {
+            const latest = data[0];
+            const timestamp = latest.timestamp ? new Date(latest.timestamp) : new Date();
+            setSensors([
+              {
+                id: 'soil-1',
+                name: 'Soil Moisture Sensor',
+                value: latest.soil_moisture,
+                unit: '%',
+                status: latest.soil_moisture < 40 ? 'warning' : 'normal',
+                lastUpdated: timestamp
+              },
+              {
+                id: 'temp-1',
+                name: 'Temperature Sensor',
+                value: latest.temperature,
+                unit: '°C',
+                status: latest.temperature > 35 ? 'warning' : 'normal',
+                lastUpdated: timestamp
+              },
+              {
+                id: 'hum-1',
+                name: 'Humidity Sensor',
+                value: latest.humidity,
+                unit: '%',
+                status: latest.humidity > 80 ? 'warning' : 'normal',
+                lastUpdated: timestamp
+              }
+            ]);
+          }
+        }
+      }
+    };
+
+    fetchData(); // Run immediately
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleExport = () => {
+    // Export the history, not just the current view
+    if (!history || history.length === 0) return;
+
+    const headers = ['Timestamp', 'Soil Moisture (%)', 'Temperature (C)', 'Humidity (%)', 'Pump Status'];
+    const csvContent = [
+      headers.join(','),
+      ...history.map(row => [
+        new Date(row.timestamp).toISOString(),
+        row.soil_moisture,
+        row.temperature,
+        row.humidity,
+        row.pump_status
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sensor_data_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+
+  const filteredSensors = sensors.filter(sensor => {
     const matchesSearch = sensor.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = filterStatus === 'all' || sensor.status === filterStatus;
     return matchesSearch && matchesFilter;
@@ -38,21 +145,21 @@ export default function SensorMonitoring() {
   const getStatusBadge = (status) => {
     switch (status) {
       case 'normal':
-        return <Badge className="status-normal">Normal</Badge>;
+        return <Badge className="bg-green-500 hover:bg-green-600">Normal</Badge>;
       case 'warning':
-        return <Badge className="status-warning">Warning</Badge>;
+        return <Badge className="bg-yellow-500 hover:bg-yellow-600">Warning</Badge>;
       case 'critical':
-        return <Badge className="status-critical">Critical</Badge>;
+        return <Badge className="bg-red-500 hover:bg-red-600">Critical</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
   };
 
   const statusCounts = {
-    all: mockSensors.length,
-    normal: mockSensors.filter(s => s.status === 'normal').length,
-    warning: mockSensors.filter(s => s.status === 'warning').length,
-    critical: mockSensors.filter(s => s.status === 'critical').length,
+    all: sensors.length,
+    normal: sensors.filter(s => s.status === 'normal').length,
+    warning: sensors.filter(s => s.status === 'warning').length,
+    critical: sensors.filter(s => s.status === 'critical').length,
   };
 
   return (
@@ -76,6 +183,10 @@ export default function SensorMonitoring() {
                   className="pl-10"
                 />
               </div>
+              <Button variant="outline" onClick={handleExport}>
+                <Download className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -135,7 +246,9 @@ export default function SensorMonitoring() {
                     <TableCell className="font-semibold">{sensor.value}</TableCell>
                     <TableCell className="text-muted-foreground">{sensor.unit}</TableCell>
                     <TableCell>{getStatusBadge(sensor.status)}</TableCell>
-                    <TableCell className="text-muted-foreground">{sensor.lastUpdated}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {sensor.lastUpdated ? formatDistanceToNow(sensor.lastUpdated, { addSuffix: true }) : 'N/A'}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -144,7 +257,7 @@ export default function SensorMonitoring() {
 
           {filteredSensors.length === 0 && (
             <div className="text-center py-12">
-              <p className="text-muted-foreground">No sensors found matching your criteria</p>
+              <p className="text-muted-foreground">No active sensors found</p>
             </div>
           )}
         </CardContent>
