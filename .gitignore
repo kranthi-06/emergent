@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+
+# Javascript/Node
+node_modules/
+build/
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Project specific
+project.zip
+file_list.txt
+*.ps1
