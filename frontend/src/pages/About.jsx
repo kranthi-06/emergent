@@ -60,13 +60,13 @@ export default function About() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground leading-relaxed">
-            The Smart Agriculture Monitoring System is an IoT-based solution designed to revolutionize traditional farming practices. 
-            By leveraging real-time sensor data, automated irrigation control, and intelligent analytics, this system helps farmers 
+            The Smart Agriculture Monitoring System is an IoT-based solution designed to revolutionize traditional farming practices.
+            By leveraging real-time sensor data, automated irrigation control, and intelligent analytics, this system helps farmers
             make data-driven decisions to optimize crop yield while conserving water resources.
           </p>
           <p className="text-muted-foreground leading-relaxed">
-            This project integrates hardware sensors with a cloud-based dashboard, providing farmers with remote access to their 
-            field conditions from anywhere. The system monitors critical parameters like soil moisture, temperature, humidity, and 
+            This project integrates hardware sensors with a cloud-based dashboard, providing farmers with remote access to their
+            field conditions from anywhere. The system monitors critical parameters like soil moisture, temperature, humidity, and
             environmental factors, triggering automated responses when thresholds are exceeded.
           </p>
         </CardContent>
@@ -173,7 +173,7 @@ export default function About() {
               </div>
               <div className="flex justify-between py-2">
                 <span className="font-medium">Last Updated</span>
-                <span className="text-muted-foreground">January 2024</span>
+                <span className="text-muted-foreground">January 2026</span>
               </div>
             </div>
           </CardContent>
@@ -193,14 +193,14 @@ export default function About() {
             <div className="space-y-2">
               <p className="text-sm">
                 <span className="font-medium">Email:</span>{' '}
-                <a href="mailto:support@agrosmart.io" className="text-primary hover:underline">
-                  support@agrosmart.io
+                <a href="mailto:kasakk2006@gmail.com" className="text-primary hover:underline">
+                  kasakk2006@gmail.com
                 </a>
               </p>
               <p className="text-sm">
                 <span className="font-medium">GitHub:</span>{' '}
-                <a href="https://github.com/agrosmart" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
-                  github.com/agrosmart
+                <a href="https://github.com/kranthi-06" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">
+                  github.com/kranthi-06
                 </a>
               </p>
             </div>
